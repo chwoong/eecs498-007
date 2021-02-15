@@ -1,0 +1,46 @@
+<two stage object detection>
+lecture slide 15-103
+1. 이미지를 cnn통과시켜서 features을 얻음
+2. rpn(first stage)->proposal 예측
+2-1. train
+rpn을 통과시키는데 여기서 7*7에 해당하는 각9개의 anchor당 2개의 confidence score과
+4개의 offset(*)을 갖고 있음
+여기서 2개의 confidence score은 positive anchor(개수 M개)에 대해 작동하는데
+하나는 object가 될 수있는 점수고 다른 하나는 background가 될 수 있는 점수이다.
+***object classsification(객체 종류를 분류하는 작업)은 하지 않는다.***
+
+따라서 loss를 계산할 때는 conf_loss와 reg_loss의 합으로 구하는데
+conf_loss는 pos anchor에 대한 object점수는 1, neg anchor에 대한 background점수는 1로
+cross entropy로 구하고
+reg_loss는 GT_offset과 offset(*)의 smooth_l1_loss로 구한다.
+
+2-2. inference
+features를 통과시켜서 얻은 conf_score과 offset이 있음
+먼저 conf_score을 sigmoid를 통과시켜서 확률을 구한다. 이를 통해 pos anchor에 대해 어떤 것이
+proposal이 될 가능성이 높은지 후보군을 추릴 수 있게 된다
+각 배치마다
+위에서 구한 확률중 threshold보다 큰 proposals에 대해 그 확률의 값을 기준으로
+nms를 돌리고 그렇게 final proposals와 final conf prob을 얻을 수 있다.
+
+3. RoI pooling 과정(second stage)
+실제 구현과 다른점이 몇가지 있는데
+(1) 두번째 stage에서 rpn을 통과한 proposal과 GT와의 offset을 다시 예측해야하지만 넘어간다.
+(2) 전체 C개의 분류 class가 있다고 할 때 두번째 stage에서 C+1개의 분류를 해야한다.(background포함해서)
+하지만 이를 생략하고(아니라면 neg anchor없이 구현해야한다?) pos/neg anchor 방식으로 간다.
+
+3-1. train
+rpn을 통과하고 나온 proposals(M개)이 있다.
+그리고 features는 image를 통과한 (B,1280,7,7)이다.
+batch에 포함된 이미지 각각 따로 그에 해당하는
+proposals각각을 features에 roi align해주고 2*2로 바꿔주는 (lecture 15-90 slide)
+torchvision.ops.roi_align를 이용한다. shape: (M, 1280, h=2, w=2)
+그리고 mean pooling을 하면 (M, 1280)의 벡터가 나오고
+이 벡터를 linear, dropout, relu, linear를 통과시켜서 class cross entropy를 하여 class loss를 구할 수 있다.
+아까 rpn에서 구한 conf_loss, reg_loss까지 모두 합해서 total loss를 구한다.
+
+3-2. inference
+rpn을 통과한 final_proposals, final_conf_probs, feature이 있다.
+먼저 feature상에 final_proposals를 roi align하여 2*2로 내보낸다. 그리고 mean pooling 하고 위에서도 설정했던
+classify를 돌리면 C class중 무엇인지가 나온다.
+이 때 배치상에 각 이미지 별로 proposals가 몇개씩 할당되었는지 개수를 통해 위에서 예측한 결과값을
+쪼갠다. 그리고 출력해주면 완성이다.

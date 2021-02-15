@@ -1,0 +1,91 @@
+<one stage object detection>
+region proposal을 7*7 grid에서  각 픽셀 중앙을 기준으로 A개의 anchor box
+(A=9)에서 고를 예정임
+
+def coord_trans:
+pixel <-> activation 224*224 <-> 7*7 로 좌표 변환 해줌
+왼쪽위가 (0,0), 오른쪽 아래가 (7,7)
+
+FeatureExtractor:
+image를 cnn을 돌려서 나온 값. mobilenet를 이용하고 출력은 (1280,7,7)
+즉, 채널 수가 1280
+
+GenerateGrid:
+7*7의 그리드의 각 중앙의 점 좌표
+
+GenerateAnchor:
+7*7의 그리드의 각 중앙을 기준으로 A개의 anchor 박스를 생성
+
+GenerateProposal:
+Yolo와 faster R-CNN이 서로 다른 좌표 변환방식을 가짐
+offsets이 주어지면 변환 방식에 맞춰서 anchor박스의 위치, 크기를 바꿔줌
+
+IoU:
+Batchsize B개 일 때
+전체 anchor box는 B*A*7*7개 있음. 또한 GT(ground truth) 는 B*N개 있음
+여기서 N은 각 이미지의 GT의 object의 개수가 최대 N개라는 의미
+이미지당 anchor box별로 GT간의 iou를 구해야하므로
+총 iou함수 반환값은 B*(A*7*7)*N개
+
+ReferenceOnActivatedAnchors:
+<input> anchor들(9*7*7=441),  GT box(B*N) 
+Yolo와 faster R-CNN에 따라 각 anchor을 positive로 볼 것이냐, negative로 볼 것이냐
+아무것도 아닌 box로 볼 것인가 기준이 다름
+-positive의 경우
+--Yolo: anchor box와 7*7의 그리드 사이의 맨해튼 거리를 통해 각 GT box가 어떤 anchor박스
+	와 가장 가까운지 알 수 있음
+	anchor을 추리고 각 GT별로 iou값이 최대인 anchor박스를 취함
+	(하나의 anchor이 여러개의 GT와 매칭될 수 있음)
+--faster:  각 anchor box(A*7*7)에 대해 최대 iou값을 갖는 GT를 선택 또는
+	N개의 GT box와 하나라도 iou가 0.7(pos_thresh)이상인 anchor box
+	를 선택
+	두 가지 가능성 중 한번이라도 선택된 anchor box 선택
+	(하나의 anchor이 최대 하나의 GT와 매칭됨)
+-negative의 경우
+둘이 똑같음
+iou가 neg_thresh(0.3)이하이면 negative. 그 외는 모두 버리는 anchor들
+<output> 선택된 pos 및 neg anchor의 index와 coord, anchor과 GT box사이의 변환하는 GT_offset, 
+	pos anchor(activbated anchor)의 GT class
+
+PredictionNetwork:
+image->[conv]->(1280,7,7)로 feature를 추출하고
+(1280,7,7)->[1*1 conv]->(128,7,7)->[dropout]->[leakyReLU]->[1*1 conv]->(5A+C,7,7)
+이런게 전체 B: batchsize개 있는 거임
+5A: 각 anchor를 변환할 좌표(tx,ty,tw,th) 및 anchor이 pos인지 neg인지 판별하는 confidence 점수 
+C: 분류되는 class
+-여기서 forward:
+  (B,5A+C,1) 나온 결과값을 바탕으로
+  tx,ty를 sigmoid로 [-0.5,0.5]로 맞춤
+  confidence값을 sigmoid로 [0,1]로 맞춤
+	--test(inference):
+		offset, class_score, confidence_score를 반환
+	--train:
+		offset, class_score을 반환하고 confidence는 pos anchor과 neg anchor에
+		대한 값을 연결해서 반환
+		
+<loss>
+confidence: GT에 해당하는 값은 1, 아닌 값은 0
+	(제대로 object에 해당하는 proposal인지 예측하는 것이 목표)
+offset: 좌표 차이값 제곱의 합
+classification: cross entropy
+
+
+<총 정리해서 훈련 과정>
+input: image(B, 3,224, 224) 와 GT box(B,N,5)
+1. 초기 image를 mobilenet을 통과시켜서 (B, 1280, 7, 7) feature를 추출함
+2. anchor과 GT사이의 iou 계산
+3. ReferenceOnActivatedAnchors 를 통해 pos, neg anchor들과 offset등을 반환(GT와의 차이)
+4. PredictionNetwork 통과시켜서 나온 offset, class_score, confidence_score
+5. 3,4의 각 점수 차이를 통해 총 loss를 구함
+  (즉, 3번은 anchor과 GT의 실제의 차이를 구한 것이고 4는 convnet를 통과시켜서 나온 예측 값이다
+  즉, 4번의 예측값을 3번과 일치시키고 싶은 것이다)
+
+<이제 inference test과정>
+이를 구현하기 위해서는 nms가 필요하다
+그 전에 nms를 구현
+1. 초기 image를 mobilenet을 통과시켜서 (B, 1280, 7, 7) feature를 추출함
+2. PredictionNetwork 통과시켜서 나온 active(pos) anchor, offset, class_score, confidence_score
+3. 구한 offset과 active(pos) anchor을 GenerateProposal에 통과시켜 proposal 구함
+4. 각 배치(B)별로 3에서 구한 proposal 중 confidence값이 threshold보다 큰 곳에 해당하는 proposal선택
+5. 4에서 proposal 가능성이 있는 후보군을 많이 줄였고 이제 nms로 확실한 후보만 남김
+6. 그렇게 구한 final_proposals, final_conf_scores, final_class 반환
