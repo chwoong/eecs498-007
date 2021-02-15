@@ -1,6 +1,6 @@
 # EECS 498-007 / 598-005 Deep Learning for Computer Vision
 
-These are the completed assignment for [EECS 498-007 / 598-005 Deep Learning for Computer Vision
+These are the completed assignments for [EECS 498-007 / 598-005 Deep Learning for Computer Vision
 ](https://web.eecs.umich.edu/~justincj/teaching/eecs498/FA2020/)
 
 And [video lectures](https://www.youtube.com/watch?v=dJYGatp4SvA&list=PL5-TkQAfAZFbzxjBHtzdVCWE0Zbhomg7r) is open to YouTube for free.
