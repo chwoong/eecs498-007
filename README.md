@@ -5,7 +5,7 @@ These are the completed assignments for [EECS 498-007 / 598-005 Deep Learning fo
 
 And [video lectures](https://www.youtube.com/watch?v=dJYGatp4SvA&list=PL5-TkQAfAZFbzxjBHtzdVCWE0Zbhomg7r) are open to YouTube for free.
 
-I **highly** recommend these lectures and assignments for who want to start studying deep learning.
+I **highly** recommend these lectures and assignments for those who want to start studying deep learning.
 
 Thanks to the University of Michigan and Instructor Justin Johnson for providing high-quality course.
 
